@@ -3,67 +3,49 @@
 
 #include <stdio.h>
 
-int d(co_t *co)
+void d(co_t *co)
 {
-    dts_co_start(co);
-    printf("d");
-    dts_co_yield(co);
-    printf("d");
-    dts_co_exit(co);
+    int id = 1;
+    printf("co[%d]: din\n", id);
+    co_yield(co);
+    printf("co[%d]: dout\n", id);
 }
 
-int c(co_t *co)
+void c(co_t *co)
 {
-    dts_co_start(co);
-    printf("c");
-    dts_co_yield(co);
-    printf("x");
-    dts_co_call(co, d);
-    printf("c");
-    dts_co_exit(co);
+    int id = 1;
+    printf("co[%d]: cin\n", id);
+    co_yield(co);
+    d(co);
+    co_yield(co);
+    printf("co[%d]: cout\n", id);
+    co_exit(co);
 }
 
+void e(co_t *co, co_t *join)
+{
+    while (!co_dead(join)) {
+        printf("co[2]\n");
+        co_yield(co);
+    }
+    co_exit(co);
+}
 
 int main(int argc, char const *argv[])
 {
-    co_t *co1;
-    uint8_t mem[32];
+    uint8_t stack1[1024];
+    uint8_t stack2[1024];
+    co_t co1;
+    co_t co2;
 
-    co1 = co_cast(mem, 32);
-    while (1) {
-        printf("j");
-        co_resume(co1, c, 1);
-        if (co_dead(co1)) {
-            break;
-        }
-    }
+    co_init(&co1, stack1);
+    co_init(&co2, stack2);
 
-    printf("\n");
-
-    co1 = co_cast(mem, 32);
-    while (1) {
-        printf("r");
-        co_resume(co1, c, 0);
-        if (co_dead(co1)) {
-            break;
-        }
-    }
-
-    printf("\n");
-
-    co_t *co2;
-    uint8_t mem2[32];
-    co1 = co_cast(mem, 32);
-    co2 = co_cast(mem2, 32);
-    while (1) {
-        printf("1");
-        co_resume(co1, c, 0);
-        printf("2");
-        co_resume(co2, c, 1);
-        if (co_dead(co1) && co_dead(co2)) {
-            break;
-        }
+    while (!co_dead(&co2)) {
+        co_resume(&co1, c);
+        co_resume(&co2, e, &co1);
     }
 
     return 0;
 }
+

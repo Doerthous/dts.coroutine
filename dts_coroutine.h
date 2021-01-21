@@ -1,4 +1,4 @@
-/*
+﻿/*
    The MIT License (MIT)
 
    Copyright (c) 2021 Doerthous
@@ -27,89 +27,59 @@
 #ifndef DTS_COROUTINE_H_
 #define DTS_COROUTINE_H_
 
-#include <assert.h>
 #include <setjmp.h>
 #include <stdint.h>
 
 typedef struct
 {
-    jmp_buf *out;
-    int call_level;
-    uint32_t use_jmp:1;
-    uint32_t yield:1;
-    uint32_t max_level:31;
-    uint16_t *breakpoint;
+    char sign[4];
+    jmp_buf *main;
+    jmp_buf ctx;
+    uint8_t *stack;
 } dts_co_t;
 
-/*
-    1. The return value of function is occupied by coroutine.
+// MinGW32
+#ifdef __MINGW32__
+# define jmp_buf_sp(jb) ((jb)[2])
+# ifdef setjmp
+#  undef setjmp
+# endif
+# define setjmp __builtin_setjmp
+# ifdef longjmp
+#  undef longjmp
+# endif
+# define longjmp __builtin_longjmp
+#elif defined(_WIN32) || defined(_WIN64)
+// Windows
+// https://stackoverflow.com/questions/26605063/an-invalid-or-unaligned-stack-was-encountered-during-an-unwind-operation
+# define jmp_buf_sp(jb) (((_JUMP_BUFFER *)jb)->Rsp)
+# define longjmp(jb,v) ((_JUMP_BUFFER *)jb)->Frame = 0; longjmp(jb, v);
+#endif
 
-    2. If you want to use co_yield_val, the first argument of coroutine function
-        must be `type_t *co_yval`. e.g: int cf1(int *co_yval, ...).s
-*/
+void dts_co_yield(dts_co_t *co);
 
-#define dts_co_start(co) \
-    assert ((co)->call_level < ((co)->max_level-1)); \
-    (co)->call_level += 1; \
-    switch((co)->breakpoint[(co)->call_level]) \
-        default:{
+void dts_co_exit(dts_co_t *co);
 
-#define dts_co_exit(co) \
-			(co)->breakpoint[(co)->call_level] = __LINE__; \
-            (co)->call_level -= 1; \
-			case __LINE__:; \
-		} \
-	return 0;
+int dts_co_dead(dts_co_t *co);
 
-#define dts_co_yield(co) do \
+#define dts_co_resume(co, func, ...) do \
 { \
-    (co)->breakpoint[(co)->call_level] = __LINE__; \
-    (co)->yield = 1; \
-    if ((co)->use_jmp) { \
-        (co)->call_level = -1; \
-        longjmp(*((co)->out), 1); \
-    } \
-    else { \
-        (co)->call_level -= 1; \
-        return 1; \
-    } \
-    case __LINE__:; \
-}while(0)
-
-#define dts_co_call(co, co_func, ...) do \
-{ \
-    (co)->breakpoint[(co)->call_level] = __LINE__; \
-    case __LINE__: if (co_func(co, ##__VA_ARGS__)) { \
-        (co)->call_level -= 1; \
-        return 1; \
-    } \
-} while (0)
-
-#define dts_co_wait_until(co, expr) do \
-{ \
-    dts_co_yield(co); \
-} while (!(expr))
-
-dts_co_t *dts_co_cast(void *mem, size_t size);
-
-#define dts_co_resume(co, co_func, jmp, ...) do \
-{ \
-    co->yield = 0; \
-    if (jmp) { \
-        jmp_buf outside; \
-        co->use_jmp = 1; \
-        co->out = &outside; \
-        if (setjmp(outside)==0) { \
-            co_func(co, ##__VA_ARGS__); \
+    jmp_buf mjb; \
+    (co)->main = &mjb; \
+    if (!setjmp(mjb)) { \
+        if ((co)->sign[0] != 'C') { \
+            (co)->sign[0] = 'C'; \
+            func(co, ##__VA_ARGS__); \
+        } \
+        else if (!dts_co_dead(co)) { \
+            /* here we save the co ptr to the stack space which is no used. */ \
+            ((dts_co_t **)jmp_buf_sp((co)->ctx))[-2] = co; \
+            longjmp((co)->ctx, 1); \
         } \
     } \
-    else { \
-        co->use_jmp = 0; \
-        co->out = NULL; \
-        co_func(co, ##__VA_ARGS__); \
-    } \
 } while (0)
-#define dts_co_dead(co) (!co1->yield)
+
+dts_co_t *dts_co_init(dts_co_t *co, uint8_t *stack);
 
 #ifdef USING_DTS_COROUTINE
 # define co_t dts_co_t
@@ -122,6 +92,7 @@ dts_co_t *dts_co_cast(void *mem, size_t size);
 # define co_cast dts_co_cast
 # define co_resume dts_co_resume
 # define co_dead dts_co_dead
+# define co_init dts_co_init
 #endif // USING_DTS_COROUTINE
 
 #endif // DTS_COROUTINE_H_
