@@ -60,8 +60,8 @@
 
 #define dts_co_call(co_func, ...) do \
 { \
+    __dts_co_break_point = __LINE__; \
     case __LINE__: if (co_func(__VA_ARGS__)) { \
-        __dts_co_break_point = __LINE__; \
         return 1; \
     } \
 } while (0)
